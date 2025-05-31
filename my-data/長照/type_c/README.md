@@ -3,7 +3,7 @@
 command 形狀
 
 ```sh
-python process_data orgainization_list.csv district_basic.csv out.csv --o-abc category --city city
+python process_data.py long_term_care_orgainization_list.csv district_basic.csv out.csv --o-abc category --city city
 ```
 
 實際使用
