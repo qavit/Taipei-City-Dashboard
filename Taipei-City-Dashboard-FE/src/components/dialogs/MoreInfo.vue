@@ -5,6 +5,9 @@ import DashboardComponent from "../../dashboardComponent/DashboardComponent.vue"
 import { useDialogStore } from "../../store/dialogStore";
 import { useContentStore } from "../../store/contentStore";
 import { useAuthStore } from "../../store/authStore";
+import http from "../../router/axios";
+import { getComponentDataTimeframe } from "../../dashboardComponent/utilities/dataTimeframe";
+import { computed } from "vue";
 
 import DialogContainer from "./DialogContainer.vue";
 import HistoryChart from "../charts/HistoryChart.vue";
@@ -14,6 +17,105 @@ import EmbedComponent from "./EmbedComponent.vue";
 const dialogStore = useDialogStore();
 const contentStore = useContentStore();
 const authStore = useAuthStore();
+
+const selectBtnList = computed(() => {
+	// 如果是在雙北頁面，使用所有可用的城市列表
+	if (contentStore.currentDashboard?.city === 'metrotaipei') {
+		return contentStore.cityManager.getCities(contentStore.cityManager.activeCities);
+	}
+	// 否則使用當前城市的選擇列表
+	return contentStore.cityManager.getSelectList(dialogStore.moreInfoContent.city);
+});
+
+const selectBtnDisabled = computed(() => {
+	// 如果是在雙北頁面，只要有多個城市就不禁用
+	if (contentStore.currentDashboard?.city === 'metrotaipei') {
+		return contentStore.cityManager.activeCities.length === 1;
+	}
+	// 否則根據當前城市的選擇列表決定
+	return contentStore.cityManager.getSelectList(dialogStore.moreInfoContent.city).length === 1;
+});
+
+async function handleCityChange(city) {
+	try {
+		if (!dialogStore.moreInfoContent || !dialogStore.moreInfoContent.index) {
+			console.error('No component info available');
+			return;
+		}
+
+		// 使用與儀表板組件相同的邏輯來查找組件
+		const selectedData = contentStore.cityDashboard.components.find((data) => {
+			return data.index === dialogStore.moreInfoContent.index && data.city === city;
+		});
+
+		if (selectedData) {
+			// 先清空圖表數據
+			dialogStore.moreInfoContent = {
+				...dialogStore.moreInfoContent,
+				chart_data: null,
+				chart_config: {
+					...dialogStore.moreInfoContent.chart_config,
+					categories: []
+				}
+			};
+
+			// 等待一個 frame，確保圖表已經清空
+			await new Promise(resolve => requestAnimationFrame(resolve));
+
+			// 獲取圖表資料
+			const response = await http.get(
+				`/component/${selectedData.id}/chart`,
+				{
+					params: {
+						city: selectedData.city,
+						...!["static", "current", "demo"].includes(selectedData.time_from)
+							? getComponentDataTimeframe(selectedData.time_from, selectedData.time_to, true)
+							: {}
+					},
+				}
+			);
+			
+			// 創建更新數據對象
+			const updatedData = {
+				...selectedData,
+				chart_data: response.data.data,
+				chart_config: {
+					...selectedData.chart_config,
+					types: selectedData.chart_config.types || dialogStore.moreInfoContent.chart_config.types,
+					categories: response.data.categories || []
+				}
+			};
+			
+			// 如果有歷史資料配置，獲取歷史資料
+			if (selectedData.history_config) {
+				const historyResponse = await http.get(
+					`/component/${selectedData.id}/history`,
+					{
+						params: {
+							city: selectedData.city
+						}
+					}
+				);
+				updatedData.history_data = historyResponse.data.data;
+			}
+			
+			// 更新完整數據
+			dialogStore.moreInfoContent = updatedData;
+		}
+	} catch (error) {
+		console.error('Failed to update component data:', error);
+		if (dialogStore.moreInfoContent) {
+			dialogStore.moreInfoContent = {
+				...dialogStore.moreInfoContent,
+				chart_data: null,
+				chart_config: {
+					...dialogStore.moreInfoContent.chart_config,
+					categories: []
+				}
+			};
+		}
+	}
+}
 
 function getLinkTag(link, index) {
 	if (link.includes("data.taipei")) {
@@ -40,7 +142,11 @@ function getLinkTag(link, index) {
         :config="dialogStore.moreInfoContent"
         :active-city="dialogStore.moreInfoContent.city"
         :city-tag="contentStore.cityManager.getTagList(dialogStore.moreInfoContent.city)"
+        :select-btn="true"
+        :select-btn-disabled="selectBtnDisabled"
+        :select-btn-list="selectBtnList"
         mode="large"
+        @change-city="handleCityChange"
       />
       <div class="moreinfo-info">
         <div class="moreinfo-info-data">

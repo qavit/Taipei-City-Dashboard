@@ -1,7 +1,7 @@
 <!-- Developed by Taipei Urban Intelligence Center 2023-2024-->
 
 <script setup>
-import { computed, ref } from "vue";
+import { computed, ref, watch } from "vue";
 import VueApexCharts from "vue3-apexcharts";
 
 const props = defineProps([
@@ -18,7 +18,7 @@ const emits = defineEmits([
 	"filterByLayer",
 	"clearByParamFilter",
 	"clearByLayerFilter",
-	"fly"
+	"fly",
 ]);
 
 const heatmapData = computed(() => {
@@ -56,21 +56,18 @@ const heatmapData = computed(() => {
 });
 
 const colorScale = computed(() => {
-	const ranges = props.chart_config.color.map(
-		(el, index) => ({
-			to: Math.floor(
+	const ranges = props.chart_config.color.map((el, index) => ({
+		to: Math.floor(
+			(heatmapData.value.highest / props.chart_config.color.length) *
+				(props.chart_config.color.length - index)
+		),
+		from:
+			Math.floor(
 				(heatmapData.value.highest / props.chart_config.color.length) *
-					(props.chart_config.color.length - index)
-			),
-			from:
-				Math.floor(
-					(heatmapData.value.highest /
-						props.chart_config.color.length) *
-						(props.chart_config.color.length - index - 1)
-				) + 1,
-			color: el,
-		})
-	);
+					(props.chart_config.color.length - index - 1)
+			) + 1,
+		color: el,
+	}));
 	ranges.unshift({
 		to: 0,
 		from: 0,
@@ -79,37 +76,80 @@ const colorScale = computed(() => {
 	return ranges;
 });
 
+const isLargeDataSet = computed(() => {
+	return props.series[0].data.length > 12;
+});
+
+// Calculate initial width for large datasets only
+const initialWidth = computed(() => {
+	const WIDTH_PER_ITEM = 30;
+	const itemCount = props.series[0].data.length;
+	return itemCount * WIDTH_PER_ITEM + 100;
+});
+
+const widthValue = ref(initialWidth.value);
+
+// Convert to a string with unit for ApexCharts
+const chartWidth = computed(() => {
+	return isLargeDataSet.value ? `${widthValue.value}px` : "100%";
+});
+
+const cellSize = computed(() => {
+	if (!isLargeDataSet.value) return 30;
+	return Math.max(25, widthValue.value / props.series[0].data.length - 2);
+});
+
+const shouldShowDataLabels = computed(() => {
+	return cellSize.value >= 30;
+});
+
 const chartOptions = ref({
 	chart: {
 		stacked: true,
-		toolbar: {
-			show: false,
-		},
+		toolbar: isLargeDataSet.value
+			? {
+					show: true,
+					tools: {
+						download: false,
+						pan: false,
+						reset: "<p>重置</p>",
+						zoomin: false,
+						zoomout: false,
+					},
+			  }
+			: {
+					show: false,
+			  },
+		height: 250,
+		redrawOnParentResize: true,
 	},
 	dataLabels: {
-		distributed: true,
+		enabled: shouldShowDataLabels.value,
 		style: {
 			fontSize: "12px",
-			fontWeight: "normal",
 		},
 	},
 	grid: {
 		show: false,
+		padding: {
+			left: 5,
+			right: 0,
+		},
 	},
 	legend: {
 		show: false,
 	},
-	markers: {
-		size: 3,
-		strokeWidth: 0,
-	},
 	plotOptions: {
 		heatmap: {
 			enableShades: false,
-			radius: 4,
+			radius: 2,
 			colorScale: {
 				ranges: colorScale.value,
 			},
+			distributed: true,
+			useFillColorAsStroke: false,
+			cellSize: cellSize.value,
+			cellPadding: 0,
 		},
 	},
 	stroke: {
@@ -118,21 +158,14 @@ const chartOptions = ref({
 		colors: ["#282a2c"],
 	},
 	tooltip: {
-		custom: function ({
-			series,
-			seriesIndex,
-			dataPointIndex,
-			w,
-		}) {
-			// The class "chart-tooltip" could be edited in /assets/styles/chartStyles.css
+		custom: function ({ series, seriesIndex, dataPointIndex, w }) {
 			return (
 				'<div class="chart-tooltip">' +
 				"<h6>" +
 				`${w.globals.labels[dataPointIndex]}-${w.globals.seriesNames[seriesIndex]}` +
 				"</h6>" +
 				"<span>" +
-				`${series[seriesIndex][dataPointIndex]}` +
-				`${props.chart_config.unit}` +
+				`${series[seriesIndex][dataPointIndex]}${props.chart_config.unit}` +
 				"</span>" +
 				"</div>"
 			);
@@ -145,11 +178,9 @@ const chartOptions = ref({
 		axisTicks: {
 			show: false,
 		},
-		categories: props.chart_config.categories
-			? props.chart_config.categories
-			: [],
+		categories: props.chart_config.categories || [],
 		labels: {
-			offsetY: 5,
+			offsetY: 2,
 			formatter: function (value) {
 				return value.length > 7 ? value.slice(0, 6) + "..." : value;
 			},
@@ -157,16 +188,42 @@ const chartOptions = ref({
 		tooltip: {
 			enabled: false,
 		},
-		type: "category",
 	},
 	yaxis: {
 		max: function (max) {
-			if (!props.chart_config.categories) {
-				return max;
-			}
-			return heatmapData.value.highest;
+			return props.chart_config.categories
+				? heatmapData.value.highest
+				: max;
+		},
+		labels: {
+			align: "right",
+			style: {
+				fontSize: "11px",
+			},
+			padding: {
+				right: 5,
+			},
+			trim: false,
 		},
 	},
+});
+
+// 監聽 widthValue 的變化來更新圖表配置
+watch([widthValue, shouldShowDataLabels], ([newWidth, showLabels]) => {
+	chartOptions.value = {
+		...chartOptions.value,
+		dataLabels: {
+			...chartOptions.value.dataLabels,
+			enabled: showLabels,
+		},
+		plotOptions: {
+			...chartOptions.value.plotOptions,
+			heatmap: {
+				...chartOptions.value.plotOptions.heatmap,
+				cellSize: cellSize.value,
+			},
+		},
+	};
 });
 
 const selectedIndex = ref(null);
@@ -206,47 +263,139 @@ function handleDataSelection(_e, _chartContext, config) {
 		selectedIndex.value = null;
 	}
 }
+
+function increaseWidth() {
+	widthValue.value += 50;
+}
+
+function decreaseWidth() {
+	if (widthValue.value > 150) {
+		widthValue.value -= 50;
+	}
+}
+
+function resetWidth() {
+	widthValue.value = initialWidth.value;
+}
 </script>
 
 <template>
-  <div
-    v-if="activeChart === 'HeatmapChart'"
-    class="heatmapchart"
-  >
-    <div class="heatmapchart-title">
-      <h5>總合</h5>
-      <h6>{{ heatmapData.sum }} {{ chart_config.unit }}</h6>
-    </div>
-    <VueApexCharts
-      width="100%"
-      height="360px"
-      type="heatmap"
-      :options="chartOptions"
-      :series="series"
-      @data-point-selection="handleDataSelection"
-    />
-  </div>
+	<div v-if="activeChart === 'HeatmapChart'" class="heatmapchart">
+		<div class="heatmapchart-header">
+			<div class="heatmapchart-title">
+				<h5>總合</h5>
+				<h6>
+					{{ heatmapData.sum.toLocaleString() }}
+					{{ chart_config.unit }}
+				</h6>
+			</div>
+			<div v-if="isLargeDataSet" class="heatmapchart-toolbar">
+				<p class="heatmapchart-toolbar-item" @click="increaseWidth">
+					<span>add</span>
+				</p>
+				<p class="heatmapchart-toolbar-item" @click="decreaseWidth">
+					<span>remove</span>
+				</p>
+				<p class="heatmapchart-toolbar-item reset" @click="resetWidth">
+					重置
+				</p>
+			</div>
+		</div>
+		<div class="heatmapchart-wrapper">
+			<div class="heatmapchart-container">
+				<VueApexCharts
+					:key="chartWidth"
+					:width="chartWidth"
+					height="250px"
+					type="heatmap"
+					:options="chartOptions"
+					:series="series"
+					@data-point-selection="handleDataSelection"
+				/>
+			</div>
+		</div>
+	</div>
 </template>
 
 <style scoped lang="scss">
 .heatmapchart {
+	&-header {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		padding: 0.5rem 1rem 0;
+		margin-bottom: -0.5rem;
+	}
+
 	&-title {
 		display: flex;
-		justify-content: center;
 		flex-direction: column;
-		margin: -0.2rem 0 -1.5rem;
 
-		h5 {
+		h5,
+		h6 {
 			margin: 0;
 			color: var(--color-complement-text);
 		}
 
 		h6 {
-			margin: 0;
-			color: var(--color-complement-text);
 			font-size: var(--font-m);
 			font-weight: 400;
 		}
+	}
+
+	&-toolbar {
+		display: flex;
+		align-items: center;
+		gap: 4px;
+		margin-left: 1rem;
+
+		&-item {
+			cursor: pointer;
+			font-size: var(--font-s);
+			display: flex;
+			justify-content: center;
+			align-items: center;
+			margin: 0;
+
+			span {
+				text-align: center;
+				font-family: var(--font-icon);
+				font-size: var(--font-ms);
+				padding: 2px;
+			}
+
+			&.reset {
+				color: var(--color-highlight);
+			}
+		}
+	}
+
+	&-wrapper {
+		width: 100%;
+		overflow-x: auto;
+		overflow-y: hidden;
+
+		&::-webkit-scrollbar {
+			height: 8px;
+		}
+
+		&::-webkit-scrollbar-track {
+			background: #f1f1f1;
+			border-radius: 4px;
+		}
+
+		&::-webkit-scrollbar-thumb {
+			background: #888;
+			border-radius: 4px;
+
+			&:hover {
+				background: #555;
+			}
+		}
+	}
+
+	&-container {
+		min-width: fit-content;
 	}
 }
 </style>

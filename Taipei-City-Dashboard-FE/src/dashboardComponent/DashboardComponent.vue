@@ -335,10 +335,7 @@ function returnChartComponent(name, svg) {
     </div>
     <!-- Control Buttons -->
     <div
-      v-if="
-        (!mode.includes('map') || toggleOn) &&
-          mode !== 'preview'
-      "
+      v-if="mode !== 'preview'"
       class="dashboardcomponent-control"
     >
       <select
