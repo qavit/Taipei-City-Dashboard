@@ -13,7 +13,9 @@ with open(csv_file_path, mode='r', encoding='big5') as file:
     
     for row in reader:
         year = row['年份']
-        if year == '112':
+        month = row['月份']
+        sex = row['性別']
+        if year == '112' and month == '12' and sex == '計':
             for i in range (65, 101):
                 query = f"{i}歲數量"
                 if i == 100:
