@@ -3,7 +3,7 @@ import os
 from collections import defaultdict
 
 csv_file_path = os.path.expanduser('~/Downloads/新北市國中里鄰學區.csv')
-output_csv_path = os.path.expanduser('~/hackathon/Taipei-City-Dashboard/tim-scripts/新北市每區學區數量.csv')
+output_csv_path = os.path.expanduser('~/hackathon/Taipei-City-Dashboard/tim-scripts//新北市每區學區數量.csv')
 
 # Dictionary to hold counts per district
 district_counts = defaultdict(int)
